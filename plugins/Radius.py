@@ -26,7 +26,7 @@ from pyrad.packet import AuthPacket, AccessReject, AccessAccept, md5_constructor
 from socket import error as socket_error
 import os
 import logging
-
+import ldap
 
 RADIUS_DICTIONARY = os.path.join(os.path.dirname(__file__), "dictionary")
 
@@ -50,42 +50,25 @@ class RadiusClient(MFAClient):
                         dict=Dictionary(RADIUS_DICTIONARY))
         radcli.retries = self._conn_retries
         radcli.timeout = self._conn_timeout
-        con=ldap.initialize('ldap://192.168.56.101')
-        user_dn = "Administrator@internal.neteas"
-        password = "Welcome123"
-        criteria = "(&(objectClass=user)(sAMAccountName="+user+"))"
-        attributes = ["userPrincipalName","memberOf"]
-        con.simple_bind_s(user_dn, password)
-        res =con.search_s("DC=internal,DC=neteas", ldap.SCOPE_SUBTREE, criteria, attributes)
-        for a in res:
-            if 'memberOf' in a[1]:
-                b = a[1]['memberOf']
-                for p in b:
-                    if 'BALABIT_MFA' in p:
-                        print "Usuario faz parte do MFA"
-                        if 'userPrincipalName' in a[1]:
-                            b = a[1]
-                            c = b['userPrincipalName'][0]
-                            print c
-                            attributes = ["memberOf"]
-                            user = c
-                            radpkt = self._createAuthenticationPacket(client=radcli, radius_user=user, radius_pass=passcode)
-                        else:
-                            return True
-                    else:
-                        return True
 
-
-
-
-#	if user in dict:
-#		return True
-#		user = dict.get(user)
-#                radpkt = self._createAuthenticationPacket(client=radcli, radius_user=user, radius_pass=passcode)
-
-#	else:
-#		return True
-	       	#radpkt = self._createAuthenticationPacket(client=radcli, radius_user=user, radius_pass=passcode)
+	l = ldap.initialize("ldap://192.168.56.101")
+	try:
+		l.simple_bind_s("svc_balabit@internal.neteas", "Welcome123")
+		ldap_result = l.search("dc=internal,dc=neteas", ldap.SCOPE_SUBTREE, "(&(objectClass=group)(cn=BALABIT_MFA))", None)
+		res_type, data = l.result(ldap_result, 0)
+		user1 = user[1:]
+		a = str(data[0][1]['member'])
+		if user1 in a:
+			ldap_result = l.search("dc=internal,dc=neteas", ldap.SCOPE_SUBTREE, "(&(objectClass=user)(cn=" + user + "))" , None)
+			res_type, data = l.result(ldap_result, 0)
+			user = data[0][1]['userPrincipalName'][0]
+			radpkt = self._createAuthenticationPacket(client=radcli, radius_user=user, radius_pass=passcode)
+    			print user
+		else:
+			return True
+	except Exception, error:
+		return True
+        #radpkt = self._createAuthenticationPacket(client=radcli, radius_user=user, radius_pass=passcode)
 
         try:
             self._log.debug("Sending authentication packet to RADIUS server %s:%d", self._server, self._port)
